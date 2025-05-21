@@ -1,8 +1,20 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-toastify';
+import { useSelector } from 'react-redux';
 import { format } from 'date-fns';
 import { getIcon } from '../utils/iconUtils';
+
+// Import services
+import {
+  getTasks,
+  createTask,
+  updateTask,
+  deleteTask,
+  updateTaskStatus
+} from '../services/taskService';
+
+import { createTaskTag } from '../services/taskTagService';
 
 const MainFeature = () => {
   // Define task status options
@@ -20,32 +32,19 @@ const MainFeature = () => {
     { id: 'urgent', label: 'Urgent', color: 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300', icon: 'alert-circle' }
   ];
 
-  // Initialize state from localStorage or default values
-  const [tasks, setTasks] = useState(() => {
-    const savedTasks = localStorage.getItem('tasks');
-    return savedTasks ? JSON.parse(savedTasks) : [
-      {
-        id: '1',
-        title: 'Complete project setup',
-        description: 'Install dependencies and configure initial project structure',
-        status: 'in-progress',
-        priority: 'high',
-        dueDate: '2023-12-25',
-        createdAt: new Date().toISOString(),
-        tags: ['setup', 'dev']
-      },
-      {
-        id: '2',
-        title: 'Design user interface',
-        description: 'Create wireframes and mockups for the application',
-        status: 'todo',
-        priority: 'medium',
-        dueDate: '2023-12-30',
-        createdAt: new Date().toISOString(),
-        tags: ['design', 'ui']
-      }
-    ];
-  });
+  // Initialize state
+  const [tasks, setTasks] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [taskError, setTaskError] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [statusUpdateLoading, setStatusUpdateLoading] = useState(null);
+  const [tagActionLoading, setTagActionLoading] = useState(false);
+
+  // Get user info from Redux
+  const { user, isAuthenticated } = useSelector((state) => state.user);
+  const userId = user?.userId;
+  const userName = user?.firstName;
 
   // Task form state
   const [showTaskForm, setShowTaskForm] = useState(false);
@@ -69,10 +68,33 @@ const MainFeature = () => {
   });
   const [showFilters, setShowFilters] = useState(false);
 
-  // Save tasks to localStorage whenever they change
+  // Fetch tasks on component mount
   useEffect(() => {
-    localStorage.setItem('tasks', JSON.stringify(tasks));
-  }, [tasks]);
+    if (isAuthenticated) {
+      fetchTasks();
+    }
+  }, [isAuthenticated, filters]);
+
+  // Fetch tasks from backend
+  const fetchTasks = async () => {
+    try {
+      setIsLoading(true);
+      setTaskError(null);
+      const fetchedTasks = await getTasks({
+        status: filters.status !== 'all' ? filters.status : null,
+        priority: filters.priority !== 'all' ? filters.priority : null,
+        search: filters.search || null
+      });
+      
+      setTasks(fetchedTasks);
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+      setTaskError('Failed to load tasks. Please try again.');
+      toast.error('Failed to load tasks');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Handle form submit
   const handleSubmit = (e) => {
@@ -82,26 +104,50 @@ const MainFeature = () => {
       toast.error("Task title is required");
       return;
     }
+    
+    setIsSubmitting(true);
 
-    if (isEditMode) {
-      // Update existing task
-      setTasks(tasks.map(task => 
-        task.id === currentTask.id ? { ...currentTask } : task
-      ));
-      toast.success("Task updated successfully");
-    } else {
-      // Create new task
-      const newTask = {
-        ...currentTask,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString()
-      };
-      setTasks([newTask, ...tasks]);
-      toast.success("New task created successfully");
+    try {
+      if (isEditMode) {
+        // Update existing task
+        updateTask(currentTask.Id, currentTask)
+          .then(() => {
+            toast.success("Task updated successfully");
+            fetchTasks();
+            resetForm();
+          })
+          .catch(error => {
+            console.error('Error updating task:', error);
+            toast.error("Failed to update task");
+          })
+          .finally(() => {
+            setIsSubmitting(false);
+          });
+      } else {
+        // Create new task
+        const newTaskData = {
+          ...currentTask,
+          createdAt: new Date().toISOString()
+        };
+        createTask(newTaskData)
+          .then(() => {
+            toast.success("New task created successfully");
+            fetchTasks();
+            resetForm();
+          })
+          .catch(error => {
+            console.error('Error creating task:', error);
+            toast.error("Failed to create task");
+          })
+          .finally(() => {
+            setIsSubmitting(false);
+          });
+      }
+    } catch (error) {
+      console.error('Task submission error:', error);
+      toast.error("An error occurred while saving the task");
+      setIsSubmitting(false);
     }
-
-    // Reset form
-    resetForm();
   };
 
   // Reset form fields and state
@@ -129,10 +175,24 @@ const MainFeature = () => {
 
   // Delete task
   const deleteTask = (id) => {
-    if (confirm("Are you sure you want to delete this task?")) {
-      setTasks(tasks.filter(task => task.id !== id));
-      toast.success("Task deleted successfully");
+    if (!confirm("Are you sure you want to delete this task?")) {
+      return;
     }
+    
+    setIsDeleting(true);
+    
+    deleteTask(id)
+      .then(() => {
+        toast.success("Task deleted successfully");
+        fetchTasks();
+      })
+      .catch(error => {
+        console.error('Error deleting task:', error);
+        toast.error("Failed to delete task");
+      })
+      .finally(() => {
+        setIsDeleting(false);
+      });
   };
 
   // Handle tag input
@@ -155,14 +215,32 @@ const MainFeature = () => {
   };
 
   // Change task status (quick action)
-  const changeStatus = (taskId, newStatus) => {
-    setTasks(tasks.map(task => 
-      task.id === taskId ? { ...task, status: newStatus } : task
-    ));
-    toast.info("Task status updated");
+  const changeStatus = async (taskId, newStatus) => {
+    setStatusUpdateLoading(taskId);
+    
+    try {
+      await updateTaskStatus(taskId, newStatus);
+      toast.info("Task status updated");
+      fetchTasks();
+    } catch (error) {
+      console.error('Error updating task status:', error);
+      toast.error("Failed to update task status");
+    } finally {
+      setStatusUpdateLoading(null);
+    }
   };
 
-  // Apply filters to tasks
+  // Reset filters
+  const resetFilters = () => {
+    setFilters({
+      status: 'all',
+      priority: 'all',
+      search: ''
+    });
+    toast.info("Filters reset");
+  };
+
+  // Apply filters locally (already applied on backend)
   const filteredTasks = tasks.filter(task => {
     // Status filter
     if (filters.status !== 'all' && task.status !== filters.status) {
@@ -188,16 +266,12 @@ const MainFeature = () => {
     
     return true;
   });
-
-  // Reset filters
-  const resetFilters = () => {
-    setFilters({
-      status: 'all',
-      priority: 'all',
-      search: ''
-    });
-    toast.info("Filters reset");
-  };
+  
+  // Process task counts by status
+  const taskCountsByStatus = statusOptions.map(status => ({
+    ...status,
+    count: tasks.filter(task => task.status === status.id).length
+  }));
 
   return (
     <div className="space-y-6">
@@ -207,6 +281,7 @@ const MainFeature = () => {
           whileHover={{ scale: 1.03 }}
           whileTap={{ scale: 0.97 }}
           onClick={() => {
+            if (!isAuthenticated) return toast.error("Please login to create tasks");
             setIsEditMode(false);
             setShowTaskForm(true);
           }}
@@ -311,7 +386,7 @@ const MainFeature = () => {
       
       {/* Task Form Modal */}
       <AnimatePresence>
-        {showTaskForm && (
+        {showTaskForm && isAuthenticated && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -465,9 +540,9 @@ const MainFeature = () => {
                   </button>
                   <button
                     type="submit"
-                    className="btn-primary"
+                    className={`btn-primary ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
-                    {isEditMode ? 'Update Task' : 'Create Task'}
+                    {isSubmitting ? 'Saving...' : (isEditMode ? 'Update Task' : 'Create Task')}
                   </button>
                 </div>
               </form>
@@ -478,15 +553,15 @@ const MainFeature = () => {
       
       {/* Task Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        {statusOptions.map(status => {
-          const count = tasks.filter(task => task.status === status.id).length;
+        {taskCountsByStatus.map(status => {
+          const { count } = status;
           const StatusIcon = getIcon(status.icon);
           
           return (
             <div key={status.id} className="card">
               <div className="flex justify-between items-center">
                 <div className="flex items-center">
-                  <div className={`p-2 rounded-lg ${status.color} mr-3`}>
+                  <div className={`p-2 rounded-lg ${status.color} mr-3`}> 
                     <StatusIcon className="h-6 w-6" />
                   </div>
                   <div>
@@ -509,8 +584,15 @@ const MainFeature = () => {
       </div>
       
       {/* Task List */}
-      {filteredTasks.length > 0 ? (
-        <div className="task-grid">
+      {isLoading ? (
+        <div className="flex items-center justify-center p-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-4 border-primary border-r-transparent"></div>
+          <span className="ml-3 text-surface-700 dark:text-surface-300">Loading tasks...</span>
+        </div>
+      ) : taskError ? (
+        <div className="p-6 text-center text-red-500">{taskError} <button onClick={fetchTasks} className="underline">Try again</button></div>
+      ) : filteredTasks.length > 0 ? (
+        <div className="task-grid"> 
           {filteredTasks.map(task => {
             // Find status and priority info
             const taskStatus = statusOptions.find(s => s.id === task.status);
@@ -520,7 +602,7 @@ const MainFeature = () => {
             
             return (
               <motion.div
-                key={task.id}
+                key={task.Id}
                 layout
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -537,14 +619,14 @@ const MainFeature = () => {
                   <div className="flex space-x-2">
                     <button
                       onClick={() => editTask(task)}
-                      className="text-surface-500 hover:text-surface-700 dark:text-surface-400 dark:hover:text-surface-200"
+                      className="text-surface-500 hover:text-surface-700 dark:text-surface-400 dark:hover:text-surface-200 disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label="Edit task"
                     >
                       <PencilIcon className="h-4 w-4" />
                     </button>
                     <button
-                      onClick={() => deleteTask(task.id)}
-                      className="text-surface-500 hover:text-red-600 dark:text-surface-400 dark:hover:text-red-400"
+                      onClick={() => deleteTask(task.Id)}
+                      className="text-surface-500 hover:text-red-600 dark:text-surface-400 dark:hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label="Delete task"
                     >
                       <TrashIcon className="h-4 w-4" />
@@ -596,33 +678,36 @@ const MainFeature = () => {
                   
                   <div className="flex space-x-2">
                     {/* Quick Status Change Buttons - only show relevant ones */}
-                    {task.status !== 'todo' && (
+                    {task.status !== 'todo' && ( 
                       <button
-                        onClick={() => changeStatus(task.id, 'todo')}
-                        className="btn-outline py-1 px-2 text-xs"
+                        onClick={() => changeStatus(task.Id, 'todo')}
+                        className={`btn-outline py-1 px-2 text-xs ${statusUpdateLoading === task.Id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        disabled={statusUpdateLoading === task.Id}
                       >
                         <CircleIcon className="h-3 w-3 mr-1" />
-                        To Do
+                        {statusUpdateLoading === task.Id ? 'Updating...' : 'To Do'}
                       </button>
                     )}
                     
                     {task.status !== 'in-progress' && (
                       <button
-                        onClick={() => changeStatus(task.id, 'in-progress')}
-                        className="btn-outline py-1 px-2 text-xs"
+                        onClick={() => changeStatus(task.Id, 'in-progress')}
+                        className={`btn-outline py-1 px-2 text-xs ${statusUpdateLoading === task.Id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        disabled={statusUpdateLoading === task.Id}
                       >
                         <ClockIcon className="h-3 w-3 mr-1" />
-                        In Progress
+                        {statusUpdateLoading === task.Id ? 'Updating...' : 'In Progress'}
                       </button>
                     )}
                     
                     {task.status !== 'done' && (
                       <button
-                        onClick={() => changeStatus(task.id, 'done')}
-                        className="btn-outline py-1 px-2 text-xs"
+                        onClick={() => changeStatus(task.Id, 'done')}
+                        className={`btn-outline py-1 px-2 text-xs ${statusUpdateLoading === task.Id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        disabled={statusUpdateLoading === task.Id}
                       >
                         <CheckCircleIcon className="h-3 w-3 mr-1" />
-                        Done
+                        {statusUpdateLoading === task.Id ? 'Updating...' : 'Done'}
                       </button>
                     )}
                   </div>
