@@ -179,9 +179,9 @@ const MainFeature = () => {
       return;
     }
     
-    setIsDeleting(true);
+    setIsDeleting(id);
     
-    deleteTask(id)
+    taskService.deleteTask(id)
       .then(() => {
         toast.success("Task deleted successfully");
         fetchTasks();
@@ -257,7 +257,7 @@ const MainFeature = () => {
       const searchTerm = filters.search.toLowerCase();
       const matchesTitle = task.title.toLowerCase().includes(searchTerm);
       const matchesDescription = task.description.toLowerCase().includes(searchTerm);
-      const matchesTags = task.tags.some(tag => tag.toLowerCase().includes(searchTerm));
+      const matchesTags = task.tags?.some(tag => tag.toLowerCase().includes(searchTerm)) || false;
       
       if (!matchesTitle && !matchesDescription && !matchesTags) {
         return false;
@@ -658,7 +658,7 @@ const MainFeature = () => {
                   )}
                 </div>
                 
-                {task.tags.length > 0 && (
+                {task.tags?.length > 0 && (
                   <div className="flex flex-wrap gap-1 mb-4">
                     {task.tags.map(tag => (
                       <span
