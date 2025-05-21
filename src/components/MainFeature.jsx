@@ -174,14 +174,14 @@ const MainFeature = () => {
   };
 
   // Delete task
-  const deleteTask = (id) => {
+  const handleDeleteTask = (id) => {
     if (!confirm("Are you sure you want to delete this task?")) {
       return;
     }
     
     setIsDeleting(id);
     
-    taskService.deleteTask(id)
+    deleteTask(id)
       .then(() => {
         toast.success("Task deleted successfully");
         fetchTasks();
@@ -625,7 +625,7 @@ const MainFeature = () => {
                       <PencilIcon className="h-4 w-4" />
                     </button>
                     <button
-                      onClick={() => deleteTask(task.Id)}
+                      onClick={() => handleDeleteTask(task.Id)}
                       className="text-surface-500 hover:text-red-600 dark:text-surface-400 dark:hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label="Delete task"
                     >
