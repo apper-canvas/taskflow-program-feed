@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@reduxjs/toolkit": "2.7.0",
-    "apexcharts": "^3.45.0",
+    "apexcharts": "^4.0.0",
     "date-fns": "^2.30.0",
     "framer-motion": "^10.16.4",
     "lucide-react": "^0.299.0",
