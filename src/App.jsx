@@ -215,16 +215,7 @@ function App() {
         toastClassName="!bg-surface-100 dark:!bg-surface-800 !shadow-card"
         bodyClassName="!text-surface-800 dark:!text-surface-100"
       />
-    </>
-  );
-}
-
-// Icon components
-const SunIcon = getIcon('sun');
-const MoonIcon = getIcon('moon');
-
-export default App;
-      
+    
       {/* Loading overlay for app initialization */}
       {!isInitialized && (
         <div className="fixed inset-0 bg-white dark:bg-surface-900 z-50 flex items-center justify-center">
@@ -235,4 +226,11 @@ export default App;
         </div>
       )}
     </AuthContext.Provider>
+  );
+}
+
+// Icon components
+const SunIcon = getIcon('sun');
+const MoonIcon = getIcon('moon');
+
 export default App;
